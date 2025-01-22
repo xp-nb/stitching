@@ -27,9 +27,6 @@ pip install stitching
 
 ### Python CLI
 
-The command line interface
-([cli](https://github.com/lukasalexanderweber/stitching/tree/main/stitching/cli/stitch.py))
-is available after installation
 
 `stitch -h`               show the help
 

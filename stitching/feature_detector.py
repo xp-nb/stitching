@@ -19,12 +19,15 @@ class FeatureDetector:
     DEFAULT_DETECTOR = list(DETECTOR_CHOICES.keys())[0]
 
     def __init__(self, detector=DEFAULT_DETECTOR, **kwargs):
+        """默认orb特征检测"""
         self.detector = FeatureDetector.DETECTOR_CHOICES[detector](**kwargs)
 
     def detect_features(self, img, *args, **kwargs):
+        """单帧检测"""
         return cv.detail.computeImageFeatures2(self.detector, img, *args, **kwargs)
 
     def detect(self, imgs):
+        """多帧检测"""
         return [self.detect_features(img) for img in imgs]
 
     def detect_with_masks(self, imgs, masks):
@@ -43,6 +46,7 @@ class FeatureDetector:
 
     @staticmethod
     def draw_keypoints(img, features, **kwargs):
+        """绘制特征点，默认红色"""
         kwargs.setdefault("color", (0, 255, 0))
         keypoints = features.getKeypoints()
         return cv.drawKeypoints(img, keypoints, None, **kwargs)

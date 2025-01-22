@@ -11,10 +11,10 @@ from .stitching_error import StitchingError
 
 
 class Images(ABC):
-    class Resolution(Enum):
+    class Resolution(Enum):  # 分辨率设置
         MEDIUM = 0.6
         LOW = 0.1
-        FINAL = -1
+        FINAL = -1 # 不缩放
 
     @staticmethod
     def of(
@@ -23,11 +23,13 @@ class Images(ABC):
         low_megapix=Resolution.LOW.value,
         final_megapix=Resolution.FINAL.value,
     ):
+        """
+        输入合法性检测
+        """
         if not isinstance(images, list):
             raise StitchingError("images must be a list of images or filenames")
         if len(images) == 0:
             raise StitchingError("images must not be an empty list")
-
         if Images.check_list_element_types(images, np.ndarray):
             return _NumpyImages(images, medium_megapix, low_megapix, final_megapix)
         elif Images.check_list_element_types(images, str):
@@ -57,21 +59,21 @@ class Images(ABC):
         self._names_set = False
 
     @property
-    def sizes(self):
+    def sizes(self):  # 返回图片尺寸
         assert self._sizes_set
         return self._sizes
 
     @property
-    def names(self):
+    def names(self):    # 返回名称
         assert self._names_set
         return self._names
 
     @abstractmethod
-    def subset(self, indices):
+    def subset(self, indices):  # 根据索引提取子集
         self._sizes = [self._sizes[i] for i in indices]
         self._names = [self._names[i] for i in indices]
 
-    def resize(self, resolution, imgs=None):
+    def resize(self, resolution, imgs=None):    # 根据分辨率缩放图像
         img_iterable = self.__iter__() if imgs is None else imgs
         for idx, img in enumerate(img_iterable):
             yield Images.resize_img_by_scaler(

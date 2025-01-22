@@ -1,5 +1,9 @@
+import os
 import warnings
 from types import SimpleNamespace
+import matplotlib.pyplot as plt
+import numpy as np
+import cv2
 
 from .blender import Blender
 from .camera_adjuster import CameraAdjuster
@@ -92,19 +96,29 @@ class Stitcher:
         return verbose_stitching(self, images, feature_masks, verbose_dir)
 
     def stitch(self, images, feature_masks=[]):
+
         self.images = Images.of(
             images, self.medium_megapix, self.low_megapix, self.final_megapix
         )
-
+        # 中分辨率找特征
         imgs = self.resize_medium_resolution()
+        # 特征检测
         features = self.find_features(imgs, feature_masks)
+        self.draw_features(imgs)
+        # 特征匹配
         matches = self.match_features(features)
+        self.save_img_matches(imgs,features,matches,"img_match")
+        # 筛选
         imgs, features, matches = self.subset(imgs, features, matches)
+        # 相机标定
         cameras = self.estimate_camera_parameters(features, matches)
+        # self.print_camera_parameters(cameras)
         cameras = self.refine_camera_parameters(features, matches, cameras)
+        # self.print_camera_parameters(cameras)
         cameras = self.perform_wave_correction(cameras)
+        # self.print_camera_parameters(cameras)
         self.estimate_scale(cameras)
-
+        # 降至低分辨率
         imgs = self.resize_low_resolution(imgs)
         imgs, masks, corners, sizes = self.warp_low_resolution(imgs, cameras)
         self.prepare_cropper(imgs, masks, corners, sizes)
@@ -112,8 +126,8 @@ class Stitcher:
             imgs, masks, corners, sizes
         )
         self.estimate_exposure_errors(corners, imgs, masks)
+        # 寻找拼接缝
         seam_masks = self.find_seam_masks(imgs, corners, masks)
-
         imgs = self.resize_final_resolution()
         imgs, masks, corners, sizes = self.warp_final_resolution(imgs, cameras)
         imgs, masks, corners, sizes = self.crop_final_resolution(
@@ -124,16 +138,42 @@ class Stitcher:
         seam_masks = self.resize_seam_masks(seam_masks)
 
         self.initialize_composition(corners, sizes)
+        # 融合
         self.blend_images(imgs, seam_masks, corners)
         return self.create_final_panorama()
 
+#########################################################################################################
+    @staticmethod
+    def save__img(imgname,img):
+        filename = f"{imgname}.jpg"
+        save_dir = "img/output"
+        os.makedirs(save_dir, exist_ok=True)
+        filepath = os.path.join(save_dir, filename)
+        cv2.imwrite(filepath, img)
+
+    def print_camera_parameters(self,camearas):
+        """打印摄像机外部参数（旋转、平移矩阵）"""
+        for camera in camearas:
+            print("------------------------------------")
+            print("Camera  Parameters:")
+            print("Rotation Matrix (R):\n", camera.R)
+            # print("Focal Length (f):", camera.f)
+            # print("Principal Point (c_x, c_y):", (camera.c_x, camera.c_y))
+            # print("Distortion Parameters:", camera.distortion)
+            print("Translation Vector (t):", camera.t)
+
     def resize_medium_resolution(self):
+        """
+        缩放图片
+        """
         return list(self.images.resize(Images.Resolution.MEDIUM))
 
     def find_features(self, imgs, feature_masks=[]):
-        if len(feature_masks) == 0:
+        """特征检测,默认无ROI，可以输入ROI"""
+
+        if len(feature_masks) == 0:     # 无ROI
             return self.detector.detect(imgs)
-        else:
+        else:   # 划分ROI
             feature_masks = Images.of(
                 feature_masks, self.medium_megapix, self.low_megapix, self.final_megapix
             )
@@ -141,10 +181,27 @@ class Stitcher:
             feature_masks = [Images.to_binary(mask) for mask in feature_masks]
             return self.detector.detect_with_masks(imgs, feature_masks)
 
+    def draw_features(self,imgs):
+        """绘制特征，保存输出"""
+        num = 1
+        for img in imgs:
+            feature = self.detector.detect_features(img)
+            imgdraw = self.detector.draw_keypoints(img, feature)
+            filename = f"output_feature_{num}"
+            Stitcher.save__img(filename,imgdraw)
+            num += 1
+
     def match_features(self, features):
+        """特征匹配"""
         return self.matcher.match_features(features)
 
+    def save_img_matches(self,imgs,features,matches,filename):
+        for idx1, idx2, img_matches in FeatureMatcher.draw_matches_matrix(imgs, features, matches):
+            continue
+        Stitcher.save__img(filename, img_matches)
+
     def subset(self, imgs, features, matches):
+        """针对图像集合，筛选出特征相似的图像，使用cv库最大连通组件"""
         indices = self.subsetter.subset(self.images.names, features, matches)
         imgs = Subsetter.subset_list(imgs, indices)
         features = Subsetter.subset_list(features, indices)
@@ -153,9 +210,10 @@ class Stitcher:
         return imgs, features, matches
 
     def estimate_camera_parameters(self, features, matches):
+        """估计相机外部参数"""
         return self.camera_estimator.estimate(features, matches)
 
-    def refine_camera_parameters(self, features, matches, cameras):
+    def refine_camera_parameters(self, features, matches, cameras):     # 细化相机参数
         return self.camera_adjuster.adjust(features, matches, cameras)
 
     def perform_wave_correction(self, cameras):
@@ -168,6 +226,7 @@ class Stitcher:
         return list(self.images.resize(Images.Resolution.LOW, imgs))
 
     def warp_low_resolution(self, imgs, cameras):
+        """图像变形"""
         sizes = self.images.get_scaled_img_sizes(Images.Resolution.LOW)
         camera_aspect = self.images.get_ratio(
             Images.Resolution.MEDIUM, Images.Resolution.LOW
@@ -208,6 +267,7 @@ class Stitcher:
         return imgs, masks, corners, sizes
 
     def estimate_exposure_errors(self, corners, imgs, masks):
+        """估计曝光误差，更新补偿器compensator"""
         self.compensator.feed(corners, imgs, masks)
 
     def find_seam_masks(self, imgs, corners, masks):
@@ -217,6 +277,7 @@ class Stitcher:
         return self.images.resize(Images.Resolution.FINAL)
 
     def compensate_exposure_errors(self, corners, imgs):
+        """调整亮度，消除曝光误差"""
         for idx, (corner, img) in enumerate(zip(corners, imgs)):
             yield self.compensator.apply(idx, corner, img, self.get_mask(idx))
 

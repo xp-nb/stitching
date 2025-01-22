@@ -1,5 +1,6 @@
 import math
 
+import cv2
 import cv2 as cv
 import numpy as np
 
@@ -30,9 +31,11 @@ class FeatureMatcher:
     def draw_matches_matrix(
         imgs, features, matches, conf_thresh=1, inliers=False, **kwargs
     ):
+
         matches_matrix = FeatureMatcher.get_matches_matrix(matches)
         for idx1, idx2 in FeatureMatcher.get_all_img_combinations(len(imgs)):
             match = matches_matrix[idx1, idx2]
+            # 置信度筛选
             if match.confidence < conf_thresh or len(match.matches) == 0:
                 continue
             if inliers:
@@ -48,7 +51,6 @@ class FeatureMatcher:
         keypoints1 = features1.getKeypoints()
         keypoints2 = features2.getKeypoints()
         matches = match1to2.getMatches()
-
         return cv.drawMatches(
             img1, keypoints1, img2, keypoints2, matches, None, **kwargs
         )
@@ -59,6 +61,7 @@ class FeatureMatcher:
 
     @staticmethod
     def get_confidence_matrix(pairwise_matches):
+        """置信度矩阵"""
         matches_matrix = FeatureMatcher.get_matches_matrix(pairwise_matches)
         match_confs = [[m.confidence for m in row] for row in matches_matrix]
         match_conf_matrix = np.array(match_confs)
